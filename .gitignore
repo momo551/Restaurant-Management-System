@@ -1,0 +1,64 @@
+# Node modules
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+db.sqlite3
+db.sqlite3.bak
+
+# End-of-life backups
+*.bak
+
+# Environment variables
+.env
+.env.local
+.env.production
+*.env.local
+*.env.production
+**/.env
+**/.env.local
+**/.env.production
+
+# Redis and Scratch
+dump.rdb
+*.rdb
+my.py
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+backend_debug.log
+
+# Frontend build directories
+frontend/dist/
+customer-website/dist/
