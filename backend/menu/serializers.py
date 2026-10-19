@@ -78,6 +78,29 @@ class MenuItemSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'production_cost', 'created_at', 'updated_at']
 
+    def validate(self, data):
+        request = self.context.get('request')
+        category = data.get('category', getattr(self.instance, 'category', None))
+
+        if request and request.user and request.user.is_authenticated:
+            if not request.user.is_superuser:
+                user_restaurant_id = getattr(request.user, 'restaurant_id', None)
+                if not user_restaurant_id:
+                    raise serializers.ValidationError(
+                        {"category": "You must be assigned to an active restaurant."}
+                    )
+                # Verify category belongs to user's restaurant
+                if category and category.restaurant_id != user_restaurant_id:
+                    raise serializers.ValidationError(
+                        {"category": "The selected category does not belong to your restaurant."}
+                    )
+                # Verify existing instance belongs to user's restaurant
+                if self.instance and self.instance.category.restaurant_id != user_restaurant_id:
+                    raise serializers.ValidationError(
+                        {"category": "You cannot modify menu items belonging to another restaurant."}
+                    )
+        return data
+
 
 class CategorySerializer(serializers.ModelSerializer):
     """Serializer for Category."""

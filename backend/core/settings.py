@@ -163,6 +163,21 @@ else:
         }
     }
 
+# --------------------------------------------------------------------------
+# Production Database Guard:
+# In production (DEBUG=False), SQLite is strictly prohibited because container
+# ephemeral disks wipe data on every deployment/restart. Fail fast if DATABASE_URL
+# is missing or resolves to SQLite.
+# --------------------------------------------------------------------------
+import sys
+_is_test = 'test' in sys.argv or config('TESTING', default=False, cast=bool)
+if not DEBUG and not _is_test and DATABASES['default'].get('ENGINE') == 'django.db.backends.sqlite3':
+    raise RuntimeError(
+        "Production misconfiguration: SQLite database engine is not permitted when DEBUG=False. "
+        "A valid PostgreSQL DATABASE_URL must be configured on Railway."
+    )
+
+
 # ─── Password Validation ──────────────────────────────────────────────────────
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -278,7 +293,7 @@ CSRF_TRUSTED_ORIGINS = [
 # ─── Security ─────────────────────────────────────────────────────────────────
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=not DEBUG, cast=bool)
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=(not DEBUG and not _is_test), cast=bool)
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 

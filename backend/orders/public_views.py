@@ -193,7 +193,16 @@ class PublicOrderCreateView(PublicRestaurantContextMixin, APIView):
             defaults={'name': request.data.get('customer_name', 'عميل')}
         )
 
-        serializer = OrderSerializer(data=request.data, context={'request': request, 'public_order': True})
+        # Sanitize incoming payload: strip client-supplied status, discounts, and driver internals
+        payload = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        for privileged_field in [
+            'status', 'discount_percentage', 'discount_amount',
+            'delivery_agent', 'delivery_commission', 'net_revenue',
+            'amount_payable_to_driver', 'is_edited'
+        ]:
+            payload.pop(privileged_field, None)
+
+        serializer = OrderSerializer(data=payload, context={'request': request, 'public_order': True})
         if serializer.is_valid():
             order_type = serializer.validated_data.get('order_type')
             if order_type == Order.OrderType.DINE_IN:

@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal
 
 from rest_framework import serializers
 
@@ -93,6 +94,19 @@ class OrderSerializer(serializers.ModelSerializer):
         
         # Mandatory fields for new orders
         if not self.instance:
+            is_public = self.context.get('public_order', False)
+            if is_public:
+                # Security hardening: public orders must never dictate privileged status,
+                # manual discounts, or delivery/financial internals.
+                data['status'] = Order.Status.PENDING
+                data['discount_percentage'] = Decimal('0.00')
+                data['discount_amount'] = Decimal('0.00')
+                data['delivery_agent'] = None
+                data['delivery_commission'] = Decimal('0.00')
+                data['net_revenue'] = Decimal('0.00')
+                data['amount_payable_to_driver'] = Decimal('0.00')
+                data['is_edited'] = False
+
             if not data.get('customer_name'):
                 errors["customer_name"] = "اسم العميل مطلوب."
             if not data.get('customer_phone'):
@@ -200,9 +214,32 @@ class OrderSerializer(serializers.ModelSerializer):
                 order.coupon.used_at = timezone.now()
                 order.coupon.save()
 
+            is_public = self.context.get('public_order', False)
+            if is_public:
+                # Force server-controlled values on persisted order
+                order.status = Order.Status.PENDING
+                order.discount_percentage = Decimal('0.00')
+                order.delivery_agent = None
+                order.delivery_commission = Decimal('0.00')
+                order.net_revenue = Decimal('0.00')
+                order.amount_payable_to_driver = Decimal('0.00')
+                order.is_edited = False
+                order.save(update_fields=[
+                    'status', 'discount_percentage', 'delivery_agent',
+                    'delivery_commission', 'net_revenue', 'amount_payable_to_driver',
+                    'is_edited'
+                ])
+
             for item_data in items_data:
-                if 'unit_price' not in item_data:
-                    item_data['unit_price'] = item_data['menu_item'].price
+                menu_item = item_data['menu_item']
+                # For public orders, unit price must always be server-derived (never client-supplied)
+                if is_public or 'unit_price' not in item_data:
+                    from menu.models import ProductOffer
+                    active_offer = ProductOffer.get_active_offer_for_item(menu_item.id)
+                    if active_offer:
+                        item_data['unit_price'] = active_offer.discounted_price
+                    else:
+                        item_data['unit_price'] = menu_item.price
                 OrderItem.objects.create(order=order, **item_data)
                 
             if order.table and order.order_type == Order.OrderType.DINE_IN:

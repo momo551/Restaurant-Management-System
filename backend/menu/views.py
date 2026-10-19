@@ -19,7 +19,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = Category.objects.filter(is_deleted=False).prefetch_related('items')
         if not user or not user.is_authenticated:
-            return qs
+            return qs.none()
         if user.is_superuser:
             return qs
         if user.restaurant_id:
@@ -32,8 +32,6 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return CategorySerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve', 'active']:
-            return [permissions.AllowAny()]
         return [HasMenuAccess()]
 
     def list(self, request, *args, **kwargs):
@@ -73,6 +71,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         from django.utils import timezone
         instance = self.get_object()
+        if not request.user.is_superuser:
+            if instance.restaurant_id != request.user.restaurant_id:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You cannot delete data belonging to another restaurant.")
         instance.is_deleted = True
         instance.deleted_at = timezone.now()
         instance.save()
@@ -121,7 +123,7 @@ class MenuItemViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = MenuItem.objects.filter(is_deleted=False).select_related('category')
         if not user or not user.is_authenticated:
-            return qs
+            return qs.none()
         if user.is_superuser:
             return qs
         if user.restaurant_id:

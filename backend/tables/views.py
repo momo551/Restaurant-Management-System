@@ -21,7 +21,7 @@ class TableViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if not user or not user.is_authenticated:
-            return Table.objects.all()
+            return Table.objects.none()
         if user.is_superuser:
             return Table.objects.all()
         if user.restaurant_id:
@@ -43,8 +43,15 @@ class TableViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied("You cannot modify data belonging to another restaurant.")
         serializer.save()
 
+    def perform_destroy(self, instance):
+        if not self.request.user.is_superuser:
+            if instance.restaurant_id != self.request.user.restaurant_id:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You cannot modify data belonging to another restaurant.")
+        super().perform_destroy(instance)
+
     def get_permissions(self):
-        if self.action in ['list', 'layout', 'retrieve', 'from_qr']:
+        if self.action == 'from_qr':
             return [permissions.AllowAny()]
         return [HasTablesAccess()]
 
@@ -103,7 +110,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
         user = self.request.user
         qs = Reservation.objects.select_related('table')
         if not user or not user.is_authenticated:
-            return qs
+            return qs.none()
         if user.is_superuser:
             return qs
         if user.restaurant_id:
@@ -136,7 +143,37 @@ class TableSessionViewSet(viewsets.ModelViewSet):
     """ViewSet for Table Session management."""
     queryset = TableSession.objects.all()
     serializer_class = TableSessionSerializer
-    permission_classes = [permissions.AllowAny] # Publicly accessible for customers
+    permission_classes = [HasTablesAccess]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return TableSession.objects.none()
+        if user.is_superuser:
+            return TableSession.objects.all()
+        if user.restaurant_id:
+            return TableSession.objects.filter(table__restaurant_id=user.restaurant_id)
+        return TableSession.objects.none()
+
+    def get_permissions(self):
+        if self.action == 'create_session':
+            return [permissions.AllowAny()]
+        return [HasTablesAccess()]
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if not self.request.user.is_superuser:
+            if instance.table.restaurant_id != self.request.user.restaurant_id:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You cannot modify data belonging to another restaurant.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if not self.request.user.is_superuser:
+            if instance.table.restaurant_id != self.request.user.restaurant_id:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You cannot delete data belonging to another restaurant.")
+        super().perform_destroy(instance)
 
     @action(detail=False, methods=['post'])
     def create_session(self, request):
