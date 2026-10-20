@@ -32,6 +32,7 @@ _default_cors_origins = ','.join([
     'http://localhost:5174',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5174',
+    'https://restaurant-system-alpha.vercel.app',
 ])
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
@@ -284,9 +285,12 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 
 # Production: set CSRF_TRUSTED_ORIGINS on Railway to your Railway URL and Vercel URLs, e.g.
 #   "https://restaurant-system-production-77a8.up.railway.app,https://your-admin.vercel.app"
+_default_csrf_origins = ','.join([
+    'https://restaurant-system-alpha.vercel.app',
+])
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
-    for origin in config('CSRF_TRUSTED_ORIGINS', default='').split(',')
+    for origin in config('CSRF_TRUSTED_ORIGINS', default=_default_csrf_origins).split(',')
     if origin.strip()
 ]
 
