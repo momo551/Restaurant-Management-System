@@ -5,6 +5,8 @@ from rest_framework import serializers
 
 from django.db import transaction
 from .models import Order, OrderItem, OrderAuditLog, DailyOrderSequence
+from .validators import parse_discount_percentage
+from menu.models import MenuItem
 from menu.serializers import MenuItemSerializer
 from django.utils import timezone
 from stock.utils import validate_stock_availability
@@ -77,6 +79,47 @@ class OrderSerializer(serializers.ModelSerializer):
             return 'HIGH'
         return 'NORMAL'
 
+    def _resolve_restaurant(self):
+        """
+        Return the trusted tenant for this write, or ``None``.
+
+        The request body is never consulted: ``restaurant`` is read-only on this
+        serializer. Each entry point already owns the authoritative context:
+          * updating an order  -> the tenant the order is already bound to;
+          * public website     -> the tenant resolved by the view from the URL slug;
+          * QR / table session -> the tenant of the table session (QR bypasses this
+                                  serializer and validates the session itself);
+          * staff / POS        -> the tenant of the authenticated user.
+        """
+        if isinstance(self.instance, Order):
+            return self.instance.restaurant
+
+        restaurant = self.context.get('restaurant')
+        if restaurant is not None:
+            return restaurant
+
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'is_authenticated', False):
+            return getattr(user, 'restaurant', None)
+        return None
+
+    @staticmethod
+    def _foreign_menu_items(items, restaurant):
+        """Return resolved menu items in ``items`` that belong to another tenant."""
+        if not items or restaurant is None:
+            return []
+        foreign = []
+        for item in items:
+            menu_item = item.get('menu_item')
+            if not isinstance(menu_item, MenuItem):
+                # Unresolved ids are resolved (and rejected) by the stock validator.
+                continue
+            category = getattr(menu_item, 'category', None)
+            if category is None or category.restaurant_id != restaurant.id:
+                foreign.append(menu_item)
+        return foreign
+
     def validate(self, data):
         """Ensure status and loyalty logic is valid."""
         errors = {}
@@ -112,20 +155,36 @@ class OrderSerializer(serializers.ModelSerializer):
             if not data.get('customer_phone'):
                 errors["customer_phone"] = "رقم تليفون العميل مطلوب."
 
+        # Unified discount policy (shared with the POS edit endpoint): 0..100%,
+        # at most two decimals, rejected when NaN/Infinity/boolean/non numeric.
+        # Public orders were already forced to Decimal('0.00') above, so a client
+        # supplied discount can never survive on that path.
+        if 'discount_percentage' in data:
+            try:
+                data['discount_percentage'] = parse_discount_percentage(
+                    data['discount_percentage']
+                )
+            except ValueError as exc:
+                errors["discount_percentage"] = str(exc)
+
         # Loyalty & Coupon logic
         customer = data.get('customer') or (self.instance.customer if self.instance else None)
-        
-        # Get trusted restaurant context
-        restaurant = getattr(self.instance, 'restaurant', None) if self.instance else None
-        if not restaurant:
-            request = self.context.get('request')
-            if request and hasattr(request.user, 'restaurant'):
-                restaurant = request.user.restaurant
-        
-        # Fail safely if no restaurant context available for stock validation
-        # Exception: Public orders will get restaurant from view, not validated_data
-        if 'items' in data and not restaurant and not self.context.get('public_order'):
-            errors["restaurant"] = "Tenant context required for order validation"
+
+        # Trusted tenant for this write (never the request payload).
+        restaurant = self._resolve_restaurant()
+
+        # An order must never be created without a tenant, and no validation may
+        # silently fall back to a global (cross-tenant) query.
+        if not self.instance and restaurant is None:
+            errors["restaurant"] = "لا يمكن إنشاء طلب بدون سياق مطعم."
+
+        # Every product must belong to the restaurant the order is saved for.
+        foreign_items = self._foreign_menu_items(data.get('items'), restaurant)
+        if foreign_items:
+            errors["items"] = (
+                "الأصناف التالية لا تنتمي إلى هذا المطعم: "
+                + ", ".join(str(item.id) for item in foreign_items)
+            )
         
         # Auto-resolve customer by phone if not provided
         if not customer and data.get('customer_phone'):
@@ -151,22 +210,22 @@ class OrderSerializer(serializers.ModelSerializer):
             elif used_points > customer.points_balance:
                 errors["used_points"] = f"رصيد النقاط غير كافٍ. الرصيد الحالي: {customer.points_balance}"
         
-        # Validate coupon code
+        # Validate coupon code (strictly inside the order's tenant)
         coupon_code = data.get('coupon_code')
         if coupon_code:
             now = timezone.now()
-            if restaurant:
+            if restaurant is None:
+                errors["coupon_code"] = "لا يمكن التحقق من الكوبون بدون سياق مطعم."
+            else:
                 coupon = Coupon.objects.filter(restaurant=restaurant, code=coupon_code.upper(), is_active=True, valid_until__gte=now).first()
-            else:
-                coupon = Coupon.objects.filter(code=coupon_code.upper(), is_active=True, valid_until__gte=now).first()
-            if not coupon:
-                errors["coupon_code"] = "كوبون غير صالح أو انتهت صلاحيته."
-            elif coupon.used_at:
-                errors["coupon_code"] = "هذا الكوبون تم استخدامه مسبقاً."
-            elif coupon.customer and coupon.customer != customer:
-                errors["coupon_code"] = "هذا الكوبون مخصص لعميل آخر."
-            else:
-                data['coupon'] = coupon
+                if not coupon:
+                    errors["coupon_code"] = "كوبون غير صالح أو انتهت صلاحيته."
+                elif coupon.used_at:
+                    errors["coupon_code"] = "هذا الكوبون تم استخدامه مسبقاً."
+                elif coupon.customer and coupon.customer != customer:
+                    errors["coupon_code"] = "هذا الكوبون مخصص لعميل آخر."
+                else:
+                    data['coupon'] = coupon
 
         # Table validation for dine-in
         if data.get('order_type') == Order.OrderType.DINE_IN:
@@ -178,8 +237,11 @@ class OrderSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(errors)
 
         if 'items' in data:
-            # Pass restaurant context from order instance for stock validation
-            restaurant = getattr(self.instance, 'restaurant', None) if self.instance else None
+            # Tenant-scoped stock validation only: a global check would mix tenants.
+            if restaurant is None:
+                raise serializers.ValidationError({
+                    "restaurant": "لا يمكن التحقق من المخزون بدون سياق مطعم."
+                })
             validate_stock_availability(data['items'], self.instance, restaurant)
             
         return data
@@ -187,17 +249,38 @@ class OrderSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         with transaction.atomic():
             items_data = validated_data.pop('items')
-            
+
             # Get restaurant context for tenant-scoped sequence generation
             restaurant = validated_data.get('restaurant')
-            
-            # Sequence generation - tenant-scoped & concurrency-safe
-            today = timezone.localdate()
-            if restaurant:
-                daily_id = DailyOrderSequence.get_next_daily_id(restaurant=restaurant, date=today)
-            else:
+
+            if restaurant is None:
                 # Orders without restaurant context should fail safely
                 raise serializers.ValidationError({"restaurant": "Restaurant context is required for order creation"})
+
+            # Defence in depth (validate() already enforces this): never persist a
+            # discount outside the shared policy, even when create() is reached
+            # without validate(). Runs before the daily sequence is consumed.
+            if 'discount_percentage' in validated_data:
+                try:
+                    validated_data['discount_percentage'] = parse_discount_percentage(
+                        validated_data['discount_percentage']
+                    )
+                except ValueError as exc:
+                    raise serializers.ValidationError({
+                        "discount_percentage": str(exc)
+                    })
+
+            # Defence in depth (validate() already enforces this): never persist a
+            # line item that belongs to a different restaurant.
+            foreign_items = self._foreign_menu_items(items_data, restaurant)
+            if foreign_items:
+                raise serializers.ValidationError({
+                    "items": "بعض الأصناف المطلوبة لا تنتمي إلى هذا المطعم."
+                })
+
+            # Sequence generation - tenant-scoped & concurrency-safe
+            today = timezone.localdate()
+            daily_id = DailyOrderSequence.get_next_daily_id(restaurant=restaurant, date=today)
             date_str = today.strftime('%Y%m%d')
             order_number = f"ORD-{date_str}-{daily_id:03d}"
             

@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Order, OrderItem
@@ -10,6 +10,10 @@ from .models import Order, OrderItem, OrderAuditLog
 from stock.utils import validate_stock_availability
 import copy
 from django.db.models import Q
+
+# Discount validation is shared with OrderSerializer so order creation and order
+# editing enforce exactly the same policy (see orders/validators.py).
+from .validators import parse_discount_percentage
 
 
 class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
@@ -27,6 +31,28 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
             return qs.filter(restaurant_id=user.restaurant_id)
         return qs.none()
     
+    def get_editable_orders(self):
+        """
+        Orders the current user is allowed to modify.
+
+        Tenant isolation is applied to the queryset *before* the row is locked and
+        fetched, so a foreign order is never loaded at all:
+          * staff are restricted to their own restaurant;
+          * an unauthenticated or tenant-less account gets an empty queryset, so it
+            can never bypass tenant isolation;
+          * platform superusers keep their existing cross-tenant access, matching
+            the read policy in ``get_queryset()`` (this change does not expand it).
+        """
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return Order.objects.none()
+        if user.is_superuser:
+            return Order.objects.filter(is_deleted=False)
+        restaurant_id = getattr(user, 'restaurant_id', None)
+        if not restaurant_id:
+            return Order.objects.none()
+        return Order.objects.filter(is_deleted=False, restaurant_id=restaurant_id)
+
     def get_permissions(self):
         if self.action == 'customer_order':
             return [permissions.AllowAny()]
@@ -44,11 +70,20 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
+
+        # The tenant of a staff/POS order is derived from the authenticated user
+        # only.  Being a superuser is NOT a reason to drop the tenant: an order
+        # must never be persisted without a restaurant, and the client cannot
+        # pick one (``restaurant`` is read-only on OrderSerializer).
         restaurant = getattr(user, 'restaurant', None)
-        if not user.is_superuser and restaurant:
-            instance = serializer.save(created_by=user, restaurant=restaurant)
-        else:
-            instance = serializer.save(created_by=user)
+        if restaurant is None:
+            raise serializers.ValidationError({
+                'restaurant': (
+                    'لا يمكن إنشاء طلب بدون مطعم. حساب المستخدم غير مرتبط بأي مطعم.'
+                )
+            })
+
+        instance = serializer.save(created_by=user, restaurant=restaurant)
         self._log_action('create', instance)
         return instance
 
@@ -273,8 +308,11 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
         """Edit an order with strict RBAC, saving audit logs, and recalculating totals."""
         from django.utils import timezone
         
-        # Lock the row to prevent race conditions
-        order = Order.objects.select_for_update().filter(pk=pk, is_deleted=False).first()
+        # Lock and fetch only an order inside the caller's allowed tenant scope.
+        # A missing order, a soft-deleted one, and an order owned by another
+        # restaurant are all reported as 404 so the endpoint does not disclose
+        # cross-tenant existence.
+        order = self.get_editable_orders().select_for_update().filter(pk=pk).first()
         if not order:
             return Response({'error': 'الطلب غير موجود أو محذوف'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -298,13 +336,25 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
         from .serializers import OrderSerializer
         data_before = OrderSerializer(order).data
 
+        # Validate the client supplied discount BEFORE mutating anything. A 400
+        # response returned from inside @transaction.atomic does not roll back
+        # writes that already happened, so the payload must be rejected first.
+        discount_percentage = None
+        if 'discount_percentage' in request.data:
+            try:
+                discount_percentage = parse_discount_percentage(
+                    request.data['discount_percentage']
+                )
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
         # Update order notes
         if 'notes' in request.data:
             order.notes = request.data['notes']
             
-        # Update discount
-        if 'discount_percentage' in request.data:
-            order.discount_percentage = request.data['discount_percentage']
+        # Update discount (already validated and converted to Decimal above)
+        if discount_percentage is not None:
+            order.discount_percentage = discount_percentage
 
         # Update items
         if 'items' in request.data:
@@ -324,6 +374,9 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
                 
                 # Check for negative total implication early (though subtotal recalculation handles final check)
                 if quantity <= 0:
+                     # Earlier loop iterations may already have written items; a plain
+                     # return would commit them, so roll the whole edit back.
+                     transaction.set_rollback(True)
                      return Response({'error': 'كمية الصنف لا يمكن أن تكون صفر أو أقل'}, status=status.HTTP_400_BAD_REQUEST)
 
                 if item_id:
@@ -341,6 +394,7 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
                     # Create new item
                     menu_item_id = item_data.get('menu_item')
                     if not menu_item_id:
+                        transaction.set_rollback(True)
                         return Response({'error': 'الصنف مطلوب لإضافة منتج جديد'}, status=status.HTTP_400_BAD_REQUEST)
                     try:
                         from menu.models import MenuItem
@@ -359,6 +413,7 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
                         )
                         provided_item_ids.append(new_item.id)
                     except MenuItem.DoesNotExist:
+                         transaction.set_rollback(True)
                          return Response({'error': f'الصنف ذو المعرف {menu_item_id} غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Removed items
@@ -373,6 +428,8 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
         order.calculate_loyalty_points()
         
         if order.total < 0:
+            # update_total() already persisted the order; roll it back.
+            transaction.set_rollback(True)
             return Response({'error': 'الإجمالي لا يمكن أن يكون بالسالب'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Sync Invoice if exists

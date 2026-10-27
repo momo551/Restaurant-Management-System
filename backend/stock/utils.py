@@ -19,19 +19,28 @@ def validate_stock_availability(items_data, order_instance=None, restaurant=None
     for item in items_data:
         menu_item = item.get('menu_item')
         if not isinstance(menu_item, MenuItem):
-            # If it's an ID, fetch the object with tenant filtering
+            # Use ID if it's already an int/string, otherwise it might be the object itself
+            menu_item_id = menu_item.id if hasattr(menu_item, 'id') else menu_item
+
+            # Entries that only reference an existing order line (e.g. editing an
+            # order item by its id) legitimately carry no product reference.
+            if menu_item_id in (None, ''):
+                continue
+
+            # Apply tenant filtering if restaurant is provided
+            menu_item_queryset = MenuItem.objects.filter(id=menu_item_id)
+            if restaurant:
+                menu_item_queryset = menu_item_queryset.filter(category__restaurant=restaurant)
+
             try:
-                # Use ID if it's already an int/string, otherwise it might be the object itself
-                menu_item_id = menu_item.id if hasattr(menu_item, 'id') else menu_item
-                
-                # Apply tenant filtering if restaurant is provided
-                menu_item_queryset = MenuItem.objects.filter(id=menu_item_id)
-                if restaurant:
-                    menu_item_queryset = menu_item_queryset.filter(category__restaurant=restaurant)
-                
                 menu_item = menu_item_queryset.get()
-            except MenuItem.DoesNotExist:
-                continue # Should be handled by serializer/view validation
+            except (MenuItem.DoesNotExist, ValueError, TypeError):
+                # An explicit product reference that cannot be resolved inside the
+                # current tenant must fail closed. Silently skipping it would let a
+                # cross-tenant product bypass stock validation entirely.
+                raise ValidationError({
+                    'items': f'الصنف {menu_item_id} غير موجود أو لا ينتمي إلى هذا المطعم.'
+                })
         
         quantity = Decimal(str(item.get('quantity', 0)))
         

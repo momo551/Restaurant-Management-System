@@ -331,19 +331,38 @@ from rest_framework.views import APIView
 
 class LogoutView(APIView):
     """
-    Secure Logout APIView that blacklists the refresh token.
+    Secure Logout APIView that blacklists the caller's refresh token.
+
+    The endpoint is idempotent: a missing, malformed, expired or already
+    blacklisted token is answered with the same success response because there is
+    nothing left to revoke. A refresh token that belongs to another user is
+    refused without touching it, and no internal exception text is ever returned.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        refresh_token = request.data.get("refresh")
+
+        if not isinstance(refresh_token, str) or not refresh_token:
+            return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
+
         try:
-            refresh_token = request.data.get("refresh")
-            if refresh_token:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            return Response({"message": "Successfully logged out"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            token = RefreshToken(refresh_token)
+        except TokenError:
+            # Invalid, expired or already blacklisted: nothing left to revoke.
+            # The exception text is deliberately not echoed back to the client.
+            return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
+
+        # Being authenticated is not proof of owning this refresh token: a user
+        # must never be able to blacklist somebody else's session.
+        if str(token.get(api_settings.USER_ID_CLAIM)) != str(request.user.id):
+            return Response(
+                {"detail": "Refresh token does not belong to this user."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        token.blacklist()
+        return Response({"message": "Logged out"}, status=status.HTTP_200_OK)
 
 class ModulePermissionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing role-based module permissions."""

@@ -202,7 +202,17 @@ class PublicOrderCreateView(PublicRestaurantContextMixin, APIView):
         ]:
             payload.pop(privileged_field, None)
 
-        serializer = OrderSerializer(data=payload, context={'request': request, 'public_order': True})
+        # The URL-derived restaurant is the authoritative tenant for validation as
+        # well as for persistence, so the serializer never falls back to a global
+        # (cross-tenant) lookup.
+        serializer = OrderSerializer(
+            data=payload,
+            context={
+                'request': request,
+                'public_order': True,
+                'restaurant': restaurant,
+            },
+        )
         if serializer.is_valid():
             order_type = serializer.validated_data.get('order_type')
             if order_type == Order.OrderType.DINE_IN:

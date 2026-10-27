@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
-import { startTokenAutoRefresh } from './api/axios';
+import { startTokenAutoRefresh, stopTokenAutoRefresh } from './api/axios';
 import useStore from './store/useStore';
 import { useThemeStore } from './store/themeStore';
 
@@ -46,8 +46,25 @@ function App() {
 
     useEffect(() => {
         checkAuth();
-        startTokenAutoRefresh();
     }, []);
+
+    // Tie the background token refresher to the authenticated state instead of the
+    // component lifecycle: it starts when a session becomes available (including
+    // after a logout/login cycle without a page reload) and stops when it ends.
+    // startTokenAutoRefresh() is idempotent, so React StrictMode's
+    // mount → cleanup → mount cycle cannot create a second loop.
+    useEffect(() => {
+        if (!isAuthenticated) {
+            stopTokenAutoRefresh();
+            return undefined;
+        }
+
+        startTokenAutoRefresh();
+
+        return () => {
+            stopTokenAutoRefresh();
+        };
+    }, [isAuthenticated]);
 
     if (loading) {
         return (
