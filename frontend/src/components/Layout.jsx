@@ -28,7 +28,8 @@ import {
     AlertTriangle,
     Trash2,
     ShieldCheck,
-    FileText
+    FileText,
+    Globe
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -48,6 +49,7 @@ export default function Layout() {
         { to: '/pos', icon: <ShoppingBag size={20} />, label: 'نقطة البيع (POS)', module: 'pos' },
         { to: '/tables', icon: <Table2 size={20} />, label: 'الترابيزات', module: 'tables' },
         { to: '/menu', icon: <UtensilsCrossed size={20} />, label: 'المنيو', module: 'menu' },
+        { to: '/website', icon: <Globe size={20} />, label: 'موقع العميل', module: 'website' },
         { to: '/reports', icon: <BarChart3 size={20} />, label: 'التقارير', module: 'reports' },
         { to: '/staff', icon: <Users size={20} />, label: 'الموظفين', module: 'staff' },
         // Inventory Group

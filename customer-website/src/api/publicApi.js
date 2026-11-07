@@ -13,6 +13,7 @@ const scopedPath = (restaurantSlug, path) => {
 
 export const publicApi = {
     getMenu: (restaurantSlug) => api.get(scopedPath(restaurantSlug, '/menu/')),
+    getWebsite: (restaurantSlug) => api.get(scopedPath(restaurantSlug, '/website/')),
     createOrder: (restaurantSlug, orderData) => api.post(scopedPath(restaurantSlug, '/orders/'), orderData),
     trackOrder: (restaurantSlug, orderNumber, phone) =>
         api.get(scopedPath(restaurantSlug, `/track/${orderNumber}/`), { params: { phone } }),

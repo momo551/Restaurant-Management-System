@@ -185,6 +185,22 @@ class OrderSerializer(serializers.ModelSerializer):
                 "الأصناف التالية لا تنتمي إلى هذا المطعم: "
                 + ", ".join(str(item.id) for item in foreign_items)
             )
+
+        # Customer-facing channels (public website) may never order items that
+        # were disabled or soft-deleted, even via a handcrafted API request.
+        # Staff channels (POS, dine-in sessions handled elsewhere) are unaffected.
+        if self.context.get('public_order') and 'items' in data:
+            unavailable_items = [
+                item['menu_item'].name
+                for item in data['items']
+                if isinstance(item.get('menu_item'), MenuItem)
+                and (item['menu_item'].is_deleted or not item['menu_item'].is_available)
+            ]
+            if unavailable_items:
+                errors["items"] = (
+                    "الأصناف التالية غير متاحة للطلب حالياً: "
+                    + ", ".join(unavailable_items)
+                )
         
         # Auto-resolve customer by phone if not provided
         if not customer and data.get('customer_phone'):

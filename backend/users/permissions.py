@@ -133,6 +133,9 @@ class HasStockAccess(BaseRolePermission):
 class HasAuditLogAccess(BaseRolePermission):
     module_name = 'audit_log'
 
+class HasWebsiteAccess(BaseRolePermission):
+    module_name = 'website'
+
 class HasPermissionsMatrixAccess(BaseRolePermission):
     module_name = 'permissions_matrix'
 

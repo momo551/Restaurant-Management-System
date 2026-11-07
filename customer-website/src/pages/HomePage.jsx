@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ChefHat, Clock, Truck, Star, Zap, Tag } from 'lucide-react';
-import heroImage from '../assets/hero-food.webp';
+import { ArrowLeft, ChefHat, Clock, Truck, Star, Zap, Tag, Phone, MapPin, MessageCircle, AlertTriangle } from 'lucide-react';
+import fallbackHeroImage from '../assets/hero-food.webp';
 import { useCartStore } from '../store/cartStore';
 import { useSessionStore } from '../store/sessionStore';
 import { useOfferStore } from '../store/offerStore';
+import { useWebsiteStore } from '../store/websiteStore';
 import { publicApi } from '../api/publicApi';
 import { restaurantPath, useRestaurantSlug } from '../restaurantContext';
 
@@ -39,6 +40,13 @@ const HomePage = () => {
     const featuredOffer = getFeaturedOffer();
     const offerTime = useCountdown(featuredOffer?.end_date);
 
+    const websiteData = useWebsiteStore((state) => state.data);
+    const websiteError = useWebsiteStore((state) => state.error);
+    const getSettings = useWebsiteStore((state) => state.getSettings);
+    const settings = getSettings();
+    const testimonials = websiteData?.testimonials || [];
+    const heroImage = settings.hero_image_url || fallbackHeroImage;
+
     useEffect(() => {
         const fetchCampaign = async () => {
             try {
@@ -52,6 +60,16 @@ const HomePage = () => {
 
     return (
         <div className="flex flex-col gap-12">
+            {/* Website settings load error — site still works with defaults */}
+            {websiteError && (
+                <div className="max-container px-4 md:px-8 pt-4">
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-2xl px-4 py-3 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                        تعذر تحميل بعض إعدادات الموقع، يتم عرض المحتوى الافتراضي مؤقتاً.
+                    </div>
+                </div>
+            )}
+
             {/* Campaign Banner */}
             {campaign && (
                 <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white py-3 px-4 text-center font-bold relative overflow-hidden group w-full">
@@ -130,23 +148,23 @@ const HomePage = () => {
                 <div className="max-container px-4 md:px-8 relative z-10 flex flex-col md:flex-row items-center gap-12">
                     <div className="flex-1 text-center md:text-right">
                         <h1 className="text-5xl md:text-7xl font-extrabold leading-tight mb-6 dark:text-white">
-                            طعم يأخذك <span className="text-primary-500">لعالم آخر</span>
+                            {settings.hero_title}
                         </h1>
                         <p className="text-lg md:text-xl text-gray-600 dark:text-neutral-400 mb-8 max-w-2xl mx-auto md:mr-0">
-                            استمتع بأشهى المأكولات المحضرة بكل حب واتقان. اطلب الآن واستلم طلبك في أسرع وقت.
+                            {settings.hero_subtitle}
                         </p>
                         <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
                             <Link
                                 to={restaurantPath(restaurantSlug, '/menu')}
                                 className="px-8 py-4 bg-primary-500 text-white font-bold rounded-2xl hover:bg-primary-600 transition-all hover:scale-105 shadow-lg shadow-primary-500/25 flex items-center gap-2"
                             >
-                                تصفح المنيو <ArrowLeft className="w-5 h-5" />
+                                {settings.hero_cta_text} <ArrowLeft className="w-5 h-5" />
                             </Link>
                             <Link
                                 to={restaurantPath(restaurantSlug, '/track')}
                                 className="px-8 py-4 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 font-bold rounded-2xl hover:bg-gray-50 dark:hover:bg-neutral-700 transition-all"
                             >
-                                تتبع طلبك
+                                {settings.hero_secondary_text}
                             </Link>
                         </div>
                     </div>
@@ -179,6 +197,61 @@ const HomePage = () => {
                     desc="جاهزون للرد على استفساراتكم في أي وقت خلال اليوم."
                 />
             </section>
+
+            {/* Testimonials — admin-curated content, only published entries */}
+            {settings.show_testimonials && testimonials.length > 0 && (
+                <section className="max-container px-4 md:px-8 pb-8">
+                    <h2 className="text-3xl font-extrabold text-center mb-8 dark:text-white">
+                        آراء <span className="text-primary-500">عملائنا</span>
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {testimonials.slice(0, 6).map((t) => (
+                            <div key={t.id}
+                                className="bg-white dark:bg-neutral-900 p-6 rounded-3xl border border-gray-100 dark:border-neutral-800 shadow-sm">
+                                <div className="flex items-center gap-1 mb-3">
+                                    {[1, 2, 3, 4, 5].map((n) => (
+                                        <Star key={n} size={16}
+                                            className={n <= t.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'} />
+                                    ))}
+                                </div>
+                                <p className="text-gray-600 dark:text-neutral-400 leading-relaxed mb-4">"{t.text}"</p>
+                                <p className="font-bold text-sm text-gray-800 dark:text-neutral-200">— {t.author_name}</p>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {/* Contact / footer info */}
+            {(settings.phone || settings.whatsapp || settings.address || settings.footer_text) && (
+                <footer className="border-t border-gray-100 dark:border-neutral-800 mt-4">
+                    <div className="max-container px-4 md:px-8 py-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                        <div className="text-center md:text-right space-y-2">
+                            {settings.footer_text && (
+                                <p className="text-sm text-gray-500 dark:text-neutral-400 max-w-md">{settings.footer_text}</p>
+                            )}
+                            {settings.address && (
+                                <p className="text-sm text-gray-500 dark:text-neutral-400 flex items-center gap-2 justify-center md:justify-start">
+                                    <MapPin size={14} className="text-primary-500" /> {settings.address}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex flex-col items-center md:items-end gap-2 text-sm">
+                            {settings.phone && (
+                                <a href={`tel:${settings.phone}`} className="flex items-center gap-2 text-gray-600 dark:text-neutral-300 hover:text-primary-500">
+                                    <Phone size={14} className="text-primary-500" /> <span dir="ltr">{settings.phone}</span>
+                                </a>
+                            )}
+                            {settings.whatsapp && (
+                                <a href={`https://wa.me/${String(settings.whatsapp).replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
+                                    className="flex items-center gap-2 text-gray-600 dark:text-neutral-300 hover:text-green-600">
+                                    <MessageCircle size={14} className="text-green-500" /> <span dir="ltr">{settings.whatsapp}</span>
+                                </a>
+                            )}
+                        </div>
+                    </div>
+                </footer>
+            )}
         </div>
     );
 };

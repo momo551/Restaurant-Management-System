@@ -95,10 +95,11 @@ class Command(BaseCommand):
             ('staff_performance', 'أداء الموظفين'),
             ('audit_log', 'سجل النشاطات'),
             ('permissions_matrix', 'مصفوفة الصلاحيات'),
+            ('website', 'إدارة موقع العميل'),
         ]
         rules = {
             'owner': [m[0] for m in all_modules],
-            'manager': ['dashboard', 'menu', 'loyalty', 'reports', 'menu_analytics', 'staff_performance'],
+            'manager': ['dashboard', 'menu', 'loyalty', 'reports', 'menu_analytics', 'staff_performance', 'website'],
             'inventory_manager': ['ingredients', 'suppliers', 'recipes', 'inventory_movements', 'low_stock', 'waste_management'],
             'cashier': ['pos', 'orders'],
             'kitchen': ['orders', 'kds'],

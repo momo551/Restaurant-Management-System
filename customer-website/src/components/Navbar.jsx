@@ -3,22 +3,32 @@ import { Link } from 'react-router-dom';
 import { ShoppingCart, Moon, Sun, UtensilsCrossed, Star } from 'lucide-react';
 import { useCartStore } from '../store/cartStore';
 import { useThemeStore } from '../store/themeStore';
+import { useWebsiteStore } from '../store/websiteStore';
 import { restaurantPath, useRestaurantSlug } from '../restaurantContext';
 
 const Navbar = () => {
     const itemsCount = useCartStore((state) => state.itemsCount());
     const { isDarkMode, toggleDarkMode } = useThemeStore();
     const restaurantSlug = useRestaurantSlug();
+    const websiteData = useWebsiteStore((state) => state.data);
     const toRestaurant = (suffix = '') => restaurantPath(restaurantSlug, suffix);
+
+    const settings = websiteData?.settings || {};
+    const displayName = settings.display_name || websiteData?.restaurant?.name || 'مطعمنا';
+    const logoUrl = settings.logo_url || '';
 
     return (
         <nav className="sticky top-0 z-50 bg-white dark:bg-neutral-900 border-b border-gray-100 dark:border-neutral-800 shadow-sm transition-colors duration-200">
             <div className="max-container flex items-center justify-between h-16 px-4 md:px-8">
                 {/* Logo */}
                 <Link to={toRestaurant()} className="flex items-center gap-2 group">
-                    <UtensilsCrossed className="w-8 h-8 text-primary-500 group-hover:rotate-12 transition-transform" />
+                    {logoUrl ? (
+                        <img src={logoUrl} alt={displayName} className="w-8 h-8 rounded-lg object-cover" />
+                    ) : (
+                        <UtensilsCrossed className="w-8 h-8 text-primary-500 group-hover:rotate-12 transition-transform" />
+                    )}
                     <span className="text-xl font-bold bg-gradient-to-r from-primary-600 to-primary-400 bg-clip-text text-transparent">
-                        Yummy Food
+                        {displayName}
                     </span>
                 </Link>
 

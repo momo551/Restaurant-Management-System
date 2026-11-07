@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'stock',
     'django_filters',
     'loyalty',
+    'website',
     'cloudinary_storage',
     'cloudinary',
 ]

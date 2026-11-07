@@ -27,6 +27,7 @@ import LowStockAlerts from './pages/LowStockAlerts';
 import WasteManagement from './pages/WasteManagement';
 import AuditLog from './pages/AuditLog';
 import PermissionsMatrix from './pages/PermissionsMatrix';
+import WebsiteManagement from './pages/WebsiteManagement';
 import QRRedirect from './pages/QRRedirect';
 import Unauthorized from './pages/Unauthorized';
 import Layout from './components/Layout';
@@ -241,6 +242,14 @@ function App() {
                         element={
                             <ProtectedRoute allowedRoles={['owner', 'hr']} module="audit_log">
                                 <AuditLog />
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/website"
+                        element={
+                            <ProtectedRoute allowedRoles={['owner', 'manager']} module="website">
+                                <WebsiteManagement />
                             </ProtectedRoute>
                         }
                     />

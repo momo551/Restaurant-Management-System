@@ -28,6 +28,8 @@ urlpatterns = [
     path('api/reports/', include('reports.urls')),
     path('api/stock/', include('stock.urls')),
     path('api/loyalty/', include('loyalty.urls')),
+    path('api/website/', include('website.urls')),
+    path('api/public/', include('website.public_urls')),
     path('api/public/', include('orders.public_urls')),
 ]
 

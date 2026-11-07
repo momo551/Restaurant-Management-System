@@ -560,6 +560,8 @@ class OrderViewSet(LoggingMixin, viewsets.ModelViewSet):
                 return Response({'error': 'أحد الأصناف غير موجود'}, status=status.HTTP_400_BAD_REQUEST)
             if menu_item.category.restaurant_id != restaurant.id:
                 return Response({'error': 'لا يمكن طلب أصناف من مطعم آخر'}, status=status.HTTP_400_BAD_REQUEST)
+            if menu_item.is_deleted or not menu_item.is_available:
+                return Response({'error': f"الصنف '{menu_item.name}' غير متاح للطلب حالياً"}, status=status.HTTP_400_BAD_REQUEST)
             menu_items[menu_item_id] = menu_item
             
         customer = None

@@ -1,11 +1,17 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 import { Outlet, useParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
+import { useWebsiteStore } from './store/websiteStore';
 
 const RestaurantContext = createContext(null);
 
 export function RestaurantLayout() {
     const { restaurantSlug } = useParams();
+    const fetchWebsite = useWebsiteStore((state) => state.fetchWebsite);
+
+    useEffect(() => {
+        if (restaurantSlug) fetchWebsite(restaurantSlug);
+    }, [restaurantSlug, fetchWebsite]);
 
     return (
         <RestaurantContext.Provider value={restaurantSlug}>
