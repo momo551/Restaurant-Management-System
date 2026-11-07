@@ -47,7 +47,7 @@ export default defineConfig(({ mode }) => {
               if (id.includes('framer-motion')) {
                 return 'vendor-motion';
               }
-              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom') || id.includes('zustand')) {
+              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom') || id.includes('zustand') || id.includes('scheduler') || id.includes('use-sync-external-store')) {
                 return 'vendor-react';
               }
               return 'vendor';
