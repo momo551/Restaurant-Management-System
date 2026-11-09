@@ -316,7 +316,9 @@ export default function WebsiteManagement() {
     };
 
     const categoryName = (id) => categories.find(c => c.id === id)?.name || `#${id}`;
-    const publicSitePath = settings?.restaurant_slug ? `/customer/${settings.restaurant_slug}` : null;
+    const publicSiteUrl = settings?.restaurant_slug
+        ? `https://yummy-food-omega.vercel.app/customer/${encodeURIComponent(settings.restaurant_slug)}`
+        : null;
 
     return (
         <div className="space-y-6">
@@ -338,8 +340,8 @@ export default function WebsiteManagement() {
                         )}
                     </p>
                 </div>
-                {publicSitePath && (
-                    <a href={publicSitePath} target="_blank" rel="noreferrer"
+                {publicSiteUrl && (
+                    <a href={publicSiteUrl} target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors">
                         <ExternalLink size={16} /> فتح الموقع
                     </a>
